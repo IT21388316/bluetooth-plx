@@ -1,118 +1,108 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
-
-import React from 'react';
-import type {PropsWithChildren} from 'react';
+import React, {useEffect, useState, useRef} from 'react';
 import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
   View,
+  Text,
+  Button,
+  FlatList,
+  PermissionsAndroid,
+  Platform,
 } from 'react-native';
+import {BleManager, Device} from 'react-native-ble-plx';
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+const App = () => {
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanCompleted, setScanCompleted] = useState(false); // Track scan status
+  const bleManagerRef = useRef(new BleManager()); // Ensure a single instance
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
+  useEffect(() => {
+    const requestPermissions = async () => {
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+        ]);
 
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
-}
+        if (
+          granted[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] !==
+            PermissionsAndroid.RESULTS.GRANTED ||
+          granted[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] !==
+            PermissionsAndroid.RESULTS.GRANTED ||
+          granted[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] !==
+            PermissionsAndroid.RESULTS.GRANTED
+        ) {
+          console.log('Bluetooth permissions denied');
+        }
+      }
+    };
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+    requestPermissions(); // Request permissions on mount
 
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+    const bleManagerInstance = bleManagerRef.current; // Store the reference
+    return () => {
+      bleManagerInstance.destroy(); // Proper cleanup
+    };
+  }, []);
+
+  const startScan = () => {
+    setDevices([]); // Clear previous devices
+    setIsScanning(true);
+    setScanCompleted(false);
+
+    const bleManagerInstance = bleManagerRef.current; // Store the instance
+
+    bleManagerInstance.startDeviceScan(null, null, (error, device) => {
+      if (error) {
+        console.error('Scan Error:', error);
+        setIsScanning(false);
+        setScanCompleted(true);
+        return;
+      }
+
+      if (device) {
+        console.log(`Found Device: ${device.name || 'Unnamed'} (${device.id})`);
+        setDevices(prevDevices => {
+          if (!prevDevices.some(d => d.id === device.id)) {
+            return [...prevDevices, device];
+          }
+          return prevDevices;
+        });
+      }
+    });
+
+    setTimeout(() => {
+      bleManagerInstance.stopDeviceScan();
+      setIsScanning(false);
+      setScanCompleted(true); // Mark scan as finished
+    }, 10000); // Stop scan after 10 seconds
   };
 
   return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
+    <View style={{padding: 20}}>
+      <Text style={{fontSize: 18, fontWeight: 'bold'}}>Bluetooth Devices:</Text>
 
-const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-  },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
-  },
-  highlight: {
-    fontWeight: '700',
-  },
-});
+      {scanCompleted && devices.length === 0 ? (
+        <Text style={{color: 'red'}}>No devices found</Text>
+      ) : (
+        <FlatList
+          data={devices}
+          keyExtractor={item => item.id}
+          renderItem={({item}) => (
+            <Text>
+              {item.name || 'Unnamed Device'} ({item.id})
+            </Text>
+          )}
+        />
+      )}
+
+      <Button
+        title={isScanning ? 'Scanning...' : 'Start Scan'}
+        onPress={startScan}
+        disabled={isScanning}
+      />
+    </View>
+  );
+};
 
 export default App;
